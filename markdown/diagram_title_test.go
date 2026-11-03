@@ -1,6 +1,7 @@
 package mark
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 // Confluence renders ac:title as a caption -- so an untitled diagram published
 // with a 64-character hash printed underneath it.
 func TestDiagramWithoutTitleHasNoCaption(t *testing.T) {
-	std, err := stdlib.New(nil)
+	std, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, attachments, err := CompileMarkdown(
@@ -40,7 +41,7 @@ func TestDiagramWithoutTitleHasNoCaption(t *testing.T) {
 
 // An explicit "title" in the info string is still shown.
 func TestDiagramWithTitleKeepsCaption(t *testing.T) {
-	std, err := stdlib.New(nil)
+	std, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, attachments, err := CompileMarkdown(
@@ -52,4 +53,32 @@ func TestDiagramWithTitleKeepsCaption(t *testing.T) {
 	assert.Contains(t, out, `ac:title="My Diagram"`)
 	require.Len(t, attachments, 1)
 	assert.Equal(t, "My Diagram.png", attachments[0].Filename)
+}
+
+// TestDiagramLeavesTheTextAfterItAlone: a diagram is handed to d2 and mermaid
+// as a slice of the document's own source, so building its checksum input
+// must not write over whatever follows a one-line diagram.
+func TestDiagramLeavesTheTextAfterItAlone(t *testing.T) {
+	for name, test := range map[string]struct {
+		source string
+		config types.MarkConfig
+	}{
+		"d2": {
+			"```d2\na -> b\n```\n\nNext paragraph here.\n",
+			types.MarkConfig{Features: []string{"d2"}, D2Scale: 1.0},
+		},
+		"mermaid": {
+			"```mermaid\ngraph LR; A-->B\n```\n\nNext paragraph here.\n",
+			types.MarkConfig{Features: []string{"mermaid"}, MermaidScale: 1.0},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			std, err := stdlib.New(context.Background(), nil)
+			require.NoError(t, err)
+
+			out, _, err := CompileMarkdown([]byte(test.source), std, "test.md", test.config)
+			require.NoError(t, err)
+			assert.Contains(t, out, "<p>Next paragraph here.</p>")
+		})
+	}
 }

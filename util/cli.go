@@ -375,9 +375,9 @@ func RunPublish(ctx context.Context, cmd *cli.Command) error {
 		log.Warn().Msg("--mermaid-macro-name has no effect without --mermaid-output=macro")
 	}
 
-	// RunContext shuts the shared browser down on the way out, however the run
-	// ends -- including when ctx is cancelled by a signal.
-	return mark.RunContext(ctx, config)
+	// Run shuts the shared browser down on the way out, however the run ends --
+	// including when ctx is cancelled by a signal.
+	return mark.Run(ctx, config)
 }
 
 // exportBaseURL is the instance "mark export --url" reads from: the URL's own,

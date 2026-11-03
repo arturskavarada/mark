@@ -1,6 +1,7 @@
 package mark
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kovetskiy/mark/v16/stdlib"
@@ -16,7 +17,7 @@ import (
 // still well-formed, so nothing objected, and the page published a link with no
 // body and an emoticon holding the paragraph's text.
 func TestDetailsKeepsStorageFormatBody(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -52,14 +53,12 @@ func TestDetailsKeepsStorageFormatBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for name, compile := range compilers {
-				out, _, err := compile([]byte(tt.input), lib, "testdata/test.md", types.MarkConfig{})
-				require.NoError(t, err, name)
+			out, _, err := CompileMarkdown([]byte(tt.input), lib, "testdata/test.md", types.MarkConfig{})
+			require.NoError(t, err)
 
-				assert.Contains(t, out, `<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">S</ac:parameter><ac:rich-text-body>`, name)
-				assert.Contains(t, out, tt.want, name)
-				assert.NoError(t, CheckWellFormed(out), name)
-			}
+			assert.Contains(t, out, `<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">S</ac:parameter><ac:rich-text-body>`)
+			assert.Contains(t, out, tt.want)
+			assert.NoError(t, CheckWellFormed(out))
 		})
 	}
 }
@@ -69,7 +68,7 @@ func TestDetailsKeepsStorageFormatBody(t *testing.T) {
 // element's children, and it must not be left in the body as markup
 // Confluence has no meaning for.
 func TestDetailsSummaryAfterContent(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, _, err := CompileMarkdown(
@@ -90,18 +89,16 @@ func TestDetailsSummaryAfterContent(t *testing.T) {
 // HTML covers it there too. html.Parse used to fix these on the way through;
 // without either, the whole page is refused.
 func TestDetailsBodyWithHTMLOnlyMarkupIsRepaired(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	input := "<details><summary>S</summary>\n" +
 		`<p>AT&T <a href="?a=1&b=2">x</a> &NotEqualTilde;</p><table><tr><td colspan=2>x</td></tr></table>` +
 		"\n</details>\n"
 
-	for name, compile := range compilers {
-		out, _, err := compile([]byte(input), lib, "testdata/test.md", types.MarkConfig{})
-		require.NoError(t, err, name)
-		require.NoError(t, CheckWellFormed(out), name)
-	}
+	out, _, err := CompileMarkdown([]byte(input), lib, "testdata/test.md", types.MarkConfig{})
+	require.NoError(t, err)
+	require.NoError(t, CheckWellFormed(out))
 }
 
 // TestDetailsClosesOmittedEndTags covers the end tags HTML lets an author leave
@@ -109,7 +106,7 @@ func TestDetailsBodyWithHTMLOnlyMarkupIsRepaired(t *testing.T) {
 // html.Parse, which closed them; copied as written, `<td>a<td>b</table>` is not
 // well-formed XML and Confluence refuses the whole page.
 func TestDetailsClosesOmittedEndTags(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -145,14 +142,12 @@ func TestDetailsClosesOmittedEndTags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for name, compile := range compilers {
-				out, _, err := compile([]byte(tt.input), lib, "testdata/test.md", types.MarkConfig{})
-				require.NoError(t, err, name)
+			out, _, err := CompileMarkdown([]byte(tt.input), lib, "testdata/test.md", types.MarkConfig{})
+			require.NoError(t, err)
 
-				assert.Contains(t, out, `<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">S</ac:parameter><ac:rich-text-body>`, name)
-				assert.Contains(t, out, tt.want, name)
-				assert.NoError(t, CheckWellFormed(out), name)
-			}
+			assert.Contains(t, out, `<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">S</ac:parameter><ac:rich-text-body>`)
+			assert.Contains(t, out, tt.want)
+			assert.NoError(t, CheckWellFormed(out))
 		})
 	}
 }

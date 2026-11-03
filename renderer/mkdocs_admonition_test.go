@@ -7,13 +7,13 @@ import (
 	cparser "github.com/kovetskiy/mark/v16/parser"
 	crenderer "github.com/kovetskiy/mark/v16/renderer"
 	"github.com/stretchr/testify/assert"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/util"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/renderer/html"
+	"github.com/yuin/goldmark/v2/util"
 )
 
-func admonitionRenderers() []renderer.NodeRenderer {
-	return []renderer.NodeRenderer{
+func admonitionRenderers() []html.Extension {
+	return []html.Extension{
 		crenderer.NewConfluenceMkDocsAdmonitionRenderer(),
 		crenderer.NewConfluenceParagraphRenderer(),
 		crenderer.NewConfluenceTextRenderer(false),
@@ -133,7 +133,7 @@ func TestAdmonitionAttributesThatAreNotText(t *testing.T) {
 // panicked with a slice bounds error: see the comment on the Advance(0) in
 // parser/admonition.go.
 func TestAdmonitionInsideABlockquote(t *testing.T) {
-	renderers := append(admonitionRenderers(), crenderer.NewConfluenceBlockQuoteRenderer())
+	renderers := append(admonitionRenderers(), crenderer.NewConfluenceGHAlertsBlockQuoteRenderer())
 	actual := render(t, "> !!! note \"In a quote\"\n>     body\n", renderers, admonitionParserOptions()...)
 	assertWellFormed(t, actual)
 
@@ -145,7 +145,7 @@ func TestAdmonitionInsideABlockquote(t *testing.T) {
 // TestAdmonitionClosedInsideAQuoteWithATab covers a closing run behind a tab in
 // a blockquote. The line after it was published inside the macro.
 func TestAdmonitionClosedInsideAQuoteWithATab(t *testing.T) {
-	renderers := append(admonitionRenderers(), crenderer.NewConfluenceBlockQuoteRenderer())
+	renderers := append(admonitionRenderers(), crenderer.NewConfluenceGHAlertsBlockQuoteRenderer())
 	actual := render(t, ">\t!!! note \"q\"\n>\t    b\n>\t!!!\n>\tafter\n", renderers, admonitionParserOptions()...)
 	assertWellFormed(t, actual)
 

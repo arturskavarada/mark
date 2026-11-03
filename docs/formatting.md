@@ -76,6 +76,46 @@ Example:
 
 More details at Confluence [Code Block Macro](https://confluence.atlassian.com/doc/code-block-macro-139390.html) doc.
 
+### Language names
+
+Confluence resolves a code block's language against a list of its own, and
+the lists differ: Data Center 8 and earlier know about 25 languages and fail to
+render a code block whose language is not one of them, while Data Center 9 and
+later, like Cloud, know about 85 and show an unknown one unhighlighted. Cloud
+matches the language case-sensitively; Data Center lowercases it first.
+
+mark replaces a few aliases that one of these lists lacks with a name for the
+same language that it has, matching them without regard to case:
+
+| Written | Published |
+| --- | --- |
+| `sh`, `zsh`, `ksh` | `bash` |
+| `txt`, `plaintext` | `text` |
+| `py3`, `python3` | `python` |
+| `rb` | `ruby` |
+| `cxx`, `cc`, `hpp` | `cpp` |
+| `posh`, `ps1`, `psm1`, `pwsh` | `powershell` |
+| `php3`, `php4`, `php5` | `php` |
+| `udiff`, `patch` | `diff` |
+| `as3` | `actionscript3` |
+| `cfc` | `coldfusion` |
+| `golang` | `go` |
+| `rs` | `rust` |
+| `kt`, `kts` | `kotlin` |
+| `clj` | `clojure` |
+| `hbs` | `handlebars` |
+| `tf` | `hcl` |
+| `md` | `markdown` |
+
+The targets in the last seven rows exist only on Cloud and Data Center 9 and
+later; Data Center 8 knows neither the alias nor the target. Every other
+language, including names every platform already knows such as `yml`, `py`,
+`shell`, `js` and `c++`, is passed to Confluence exactly as written.
+
+`mark export` writes a code block whose stored language is one of these aliases
+as the macro rather than as a fence, because the fence would publish back under
+the other name.
+
 ## Block Quotes
 
 ### GitHub Alerts Support

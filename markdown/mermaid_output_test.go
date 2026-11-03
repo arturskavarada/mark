@@ -1,6 +1,7 @@
 package mark
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kovetskiy/mark/v16/stdlib"
@@ -17,7 +18,7 @@ import (
 // would otherwise fall to the PNG branch and publish a picture that was not
 // asked for, saying nothing at all.
 func TestCompileMarkdownRefusesAnUnknownMermaidOutput(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	document := []byte("# Title\n\n```mermaid\ngraph TD;\n A-->B;\n```\n")
@@ -37,7 +38,7 @@ func TestCompileMarkdownRefusesAnUnknownMermaidOutput(t *testing.T) {
 // an embedded "]]>" is split across two sections (invariant 2), and a title in
 // the info string is not used -- the macro carries no caption.
 func TestCompileMarkdownMermaidMacroEscapesAndIgnoresTitle(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	document := []byte("# Mermaid Test\n\n```mermaid title My Diagram\nflowchart TD\nA[\"x ]]> y\"]\n```\n")
@@ -57,7 +58,7 @@ A["x ]]><![CDATA[]]]]><![CDATA[> y"]]]>`, "the body's ]]> is split across CDATA 
 // MermaidMacroName the ac:name is the one the caller named, escaped like any
 // attribute value, and an empty name falls back to the default.
 func TestCompileMarkdownMermaidMacroName(t *testing.T) {
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	document := []byte("# Mermaid Test\n\n```mermaid\nflowchart TD\nA[Start] --> B[End]\n```\n")

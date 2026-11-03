@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/yuin/goldmark/ast"
+	"github.com/kovetskiy/mark/v16/stdlib"
+	"github.com/yuin/goldmark/v2/ast"
 	"golang.org/x/net/html"
 )
 
@@ -122,7 +123,7 @@ func rewriteDetails(raw []byte) ([]byte, bool) {
 			if ok {
 				if title != "" {
 					buf.WriteString(`<ac:parameter ac:name="title">`)
-					buf.WriteString(html.EscapeString(title))
+					buf.WriteString(stdlib.XMLEscape(title))
 					buf.WriteString(`</ac:parameter>`)
 				}
 				if leadingWhitespace(toks, i+1, start) {
@@ -223,7 +224,7 @@ func coalesceInlineDetails(node ast.Node, raw []byte, source []byte) ([]byte, []
 	var folded []ast.Node
 	for sib := node.NextSibling(); sib != nil; sib = sib.NextSibling() {
 		switch sib.(type) {
-		case *ast.RawHTML, *ast.Text, *ast.String:
+		case *ast.RawHTML, *ast.Text, *String:
 		default:
 			return raw, nil
 		}

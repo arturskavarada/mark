@@ -1,6 +1,7 @@
 package mark
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,22 +34,18 @@ func TestIncludedDefinesStayWithTheirFragment(t *testing.T) {
 		"b/frag.md": `{{ define "hdr" }}header-b{{ end }}{{ template "hdr" }}` + "\n",
 	})
 
-	for name, compile := range compilers {
-		t.Run(name, func(t *testing.T) {
-			lib, err := stdlib.New(nil)
-			require.NoError(t, err)
+	lib, err := stdlib.New(context.Background(), nil)
+	require.NoError(t, err)
 
-			doc := []byte("<!-- Include: frag.md -->\n")
-			for _, page := range []struct{ path, want string }{
-				{"a/one.md", "header-a"},
-				{"b/one.md", "header-b"},
-				{"a/two.md", "header-a"},
-			} {
-				out, _, err := compile(doc, lib, filepath.Join(dir, page.path), types.MarkConfig{})
-				require.NoError(t, err, page.path)
-				assert.Contains(t, out, page.want, page.path)
-			}
-		})
+	doc := []byte("<!-- Include: frag.md -->\n")
+	for _, page := range []struct{ path, want string }{
+		{"a/one.md", "header-a"},
+		{"b/one.md", "header-b"},
+		{"a/two.md", "header-a"},
+	} {
+		out, _, err := CompileMarkdown(doc, lib, filepath.Join(dir, page.path), types.MarkConfig{})
+		require.NoError(t, err, page.path)
+		assert.Contains(t, out, page.want, page.path)
 	}
 }
 
@@ -66,17 +63,13 @@ func TestIncludedDefinesServeTheRestOfThePage(t *testing.T) {
 
 	doc := []byte("<!-- Include: macros.md -->\n\n# Doc\n\nsee BOX-hello\n\n<!-- Include: later.md\ntext: sibling -->\n")
 
-	for name, compile := range compilers {
-		t.Run(name, func(t *testing.T) {
-			lib, err := stdlib.New(nil)
-			require.NoError(t, err)
+	lib, err := stdlib.New(context.Background(), nil)
+	require.NoError(t, err)
 
-			out, _, err := compile(doc, lib, filepath.Join(dir, "doc.md"), types.MarkConfig{})
-			require.NoError(t, err)
-			assert.Contains(t, out, "<p>see <b>hello</b></p>")
-			assert.Contains(t, out, "[<b>sibling</b>]")
-		})
-	}
+	out, _, err := CompileMarkdown(doc, lib, filepath.Join(dir, "doc.md"), types.MarkConfig{})
+	require.NoError(t, err)
+	assert.Contains(t, out, "<p>see <b>hello</b></p>")
+	assert.Contains(t, out, "[<b>sibling</b>]")
 }
 
 // TestIncludedDefineDoesNotReplaceStdlib covers a fragment defining a name the
@@ -89,7 +82,7 @@ func TestIncludedDefineDoesNotReplaceStdlib(t *testing.T) {
 		"a/frag.md": `{{ define "ac:box" }}HIJACKED{{ end }}{{ template "ac:box" }}` + "\n",
 	})
 
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, _, err := CompileMarkdown([]byte("<!-- Include: frag.md -->\n"), lib, filepath.Join(dir, "a/one.md"), types.MarkConfig{})
@@ -111,7 +104,7 @@ func TestIncludedDefineReachesNestedInclude(t *testing.T) {
 		"inner.md": `[{{ template "hdr" }}]` + "\n",
 	})
 
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, _, err := CompileMarkdown([]byte("<!-- Include: outer.md -->\n"), lib, filepath.Join(dir, "page.md"), types.MarkConfig{})
@@ -127,7 +120,7 @@ func TestInlineMacroDefineDoesNotReplaceStdlib(t *testing.T) {
 		"     inline: '{{ define \"ac:box\" }}HIJACKED{{ end }}{{ template \"ac:box\" }}' -->\n\n" +
 		"BOX\n"
 
-	lib, err := stdlib.New(nil)
+	lib, err := stdlib.New(context.Background(), nil)
 	require.NoError(t, err)
 
 	out, _, err := CompileMarkdown([]byte(macroPage), lib, filepath.Join(t.TempDir(), "a.md"), types.MarkConfig{})

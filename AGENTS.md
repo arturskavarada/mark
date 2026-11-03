@@ -33,7 +33,7 @@ tests, which take minutes. There is currently no `-short` skip.
 | `mark.go` | orchestration: `Run` (glob → loop) and `ProcessFile` (the whole per-file pipeline); its concerns sit beside it in `tracking.go` (`--track-pages`), `orphans.go`, `changes.go` (`--changes-only`, `--no-overwrite`), `attachments.go`, `links.go`, `titles.go`, `runtitles.go` and `export.go` |
 | `metadata/` | `<!-- Header: -->` comments and YAML front matter → `Meta` |
 | `page/` | ancestry/folder resolution, relative-link rewriting, relocation, and the `--parents-from-path` hierarchy with its directory titles |
-| `confluence/` | REST client (v1 `/rest/api` + v2 `/api/v2`), page cache, page restrictions, label sync |
+| `confluence/` | REST client (v1 `/rest/api` + v2 `/api/v2`) on `net/http` (`client.go`), page cache, page restrictions, label sync |
 | `attachment/` | checksum, upload/update, link rewriting |
 | `comments/` | `--preserve-comments`: re-places the page's inline-comment markers in the new body |
 | `fingerprint/` | the `--changes-only` content fingerprint, and the tag that carries it in a page's version message |
@@ -51,6 +51,8 @@ tests, which take minutes. There is currently no `-short` skip.
 | `types/` | `MarkConfig`, the rendering options (diagram output and scale, features, image alignment, include path) handed to the renderers and transformers |
 | `stdlib/` | the `text/template` set that emits all `<ac:*>` markup |
 | `docs/` | the user reference, one page per topic; `README.md` keeps the overview, installation and command-line usage |
+| `internal/goldmarktest` | a goldmark parser and renderer built together, for tests |
+| `internal/htmlblock` | an HTML block's lines without its closing line, as goldmark v1 gave them |
 
 Pipeline in `ProcessFile`: read → normalise CRLF → extract metadata → resolve relative
 links → resolve restricted users and groups → resolve/create page + ancestry → tighten
@@ -99,9 +101,8 @@ an attribute break the entire upload, not just one element.
 All three also replace the characters XML 1.0 has no spelling for — most C0 controls,
 U+FFFE/U+FFFF, bytes that are not UTF-8 — with U+FFFD; Go code that builds markup itself
 calls the same `stdlib.XMLEscape` and `stdlib.CDATA`. Text goldmark writes itself, and raw
-HTML, never passes through them, so `CompileMarkdown` and `CompileMarkdownLegacy` finish
-with one pass over the whole body that does the same, numeric references such as `&#27;`
-included.
+HTML, never passes through them, so `CompileMarkdown` finishes with one pass over the
+whole body that does the same, numeric references such as `&#27;` included.
 
 Titles, filenames, and `ri:content-title` have each caused a malformed-XML bug in the
 past. If you add a template that interpolates user-controlled text, pipe it through one
@@ -113,35 +114,50 @@ table cells. `macro.ExtractMacros` and `includes.ProcessIncludes` run on the raw
 `CompileMarkdown` before the converter is built. Do not move this work into an AST
 transformer without understanding why it was moved out of one.
 
-**4. A smaller goldmark priority number wins, for parsers and renderers alike.**
+**4. Parsers and transformers run by priority; renderers have none, and the last one
+registered for a node kind wins.** mark is on goldmark v2.
 
-- *Inline/block parsers*: a **smaller** number is tried **first**. `ConfluenceTagParser`
-  uses `199` to run before goldmark's own link parser at `200`, so that `<ac:*/>` tags are
-  not parsed as links.
-- *Node renderers*: goldmark sorts them ascending and then calls `RegisterFuncs` from the
-  **end backwards** (`renderer/renderer.go`), and each registration overwrites the last
-  for a given node kind -- so the **smaller** number is the one that renders. Every
-  renderer in this repo is competing with one of goldmark's: the default `html.Renderer`
-  goes in at `1000` and claims every core kind, so anything meant to replace it has to
-  sit below that. Only the bound is load-bearing there --- anything in `(0, 1000)`
-  clears `html.Renderer`, so the GH-alerts blockquote/text renderers' `200` would work
-  just as well at `100`. The numbers that are genuinely constrained are the footnote
-  renderers' `100`, which has to beat goldmark's footnote extension at `500` as well,
-  and `ConfluenceTagParser`'s `199` above.
+- *Inline/block parsers and AST transformers*: `util.Prioritized`, and a **smaller**
+  number is tried, or runs, **first**. `ConfluenceTagParser` uses `199` to run before
+  goldmark's own link parser at `200`, so that `<ac:*/>` tags are not parsed as links.
+  `util.Prioritized` is generic: give it the interface type,
+  `util.Prioritized[parser.ASTTransformer](...)`, when the constructor returns a pointer.
+- *Node renderers*: goldmark v2 keeps one renderer per node kind. `html.New` puts its own
+  CommonMark renderers in first and then applies each `html.Extension` in the order it was
+  given, each overwriting the kinds it names. Every renderer in `renderer/` is an
+  `html.Extension`; `ConfluenceExtension.RendererOptions` collects them, in order, and is
+  given to `html.New` after goldmark's table and strikethrough renderers, so mark's are
+  the ones left standing. Of two of mark's for one kind, the later wins.
+- Two ways to get this wrong. `html.WithNodeRenderers` passed straight to `html.New` is
+  applied *before* the CommonMark extension, which then overwrites it. And an extension
+  cannot hand goldmark further extensions: a `parser.WithExtensions` or
+  `html.WithExtensions` returned from `ParserOptions`/`RendererOptions` is silently never
+  run, which is why the emoji parser's options and the renderers' are inlined there.
+- goldmark's own footnote, task list and definition list HTML renderers are not
+  registered: the footnote one writes the notes from a decorator on the document, and
+  the task list one replaces the paragraph renderer. Fenced and indented code blocks
+  are one kind in v2; the fenced renderer is a `NodeRendererDecorator` over whatever
+  renders `ast.KindCodeBlock`.
 
-Getting this backwards silently produces the default rendering, with no error anywhere.
+Getting this wrong silently produces the default rendering, with no error anywhere.
+
+`transformer.ShapeTransformers()` (priorities `1`--`3`, and `999`) give the tree the
+shape goldmark v1's parser built and everything here was written against: tight
+paragraphs as `transformer.TextBlock`, and the footnotes gathered into a
+`transformer.FootnoteList` at the end with backlinks. `transformer.String` stands in for
+v1's `ast.String`, and `transformer.NewHTMLRenderer` renders it and `TextBlock` the way
+v1 did. `ConfluenceExtension` registers them. A task's status is read straight off the list
+item with `extension.TaskStatusOf`; there is no checkbox node. goldmark v2 also
+keeps text as a `text.Value`: `Str(source)` is the text as written, which is what this
+code reads, and `Value(source)` the decoded text.
 
 **5. AST transformers cannot return errors.** goldmark's `ASTTransformer` interface has no
 error return, so `transformer.PipelineTransformer` accumulates errors internally and
-`CompileMarkdown` retrieves them with `Pipeline.GetError()` after `Convert`. A transformer
+`CompileMarkdown` retrieves them with `Pipeline.GetError()` after rendering. A transformer
 that fails silently without recording into the pipeline will produce a wrong page and a
 zero exit code.
 
-**6. Two compile paths must both keep working.** `CompileMarkdown` (default, GH alerts +
-pipeline transformer) and `CompileMarkdownLegacy` (the original renderer set). They are
-compared against each other in `markdown/transformer_comparison_test.go`.
-
-**7. Attachment checksums are content-addressed, but rendered ones are source-addressed.**
+**6. Attachment checksums are content-addressed, but rendered ones are source-addressed.**
 Checksums live in the remote attachment's comment behind the `AttachmentChecksumPrefix`
 (`mark:checksum:` followed by a space).
 Mermaid attachments and d2 PNGs set `Checksum` from the *diagram source* (plus the scale
@@ -155,20 +171,42 @@ deterministic.
 `ResolveAttachments` skips checksum computation when `Checksum` is already set — preserve
 that.
 
-**8. `--features` replaces the defaults, it does not add to them.** Defaults are
-`mermaid,mention`, and `none` switches every optional feature off. When adding a feature: register it in `markdown/markdown.go` (both
-extensions if applicable), add it to the `Usage` string of the `features` flag in
-`util/flags.go`, and document it under `docs/` (diagrams and other
-rendering in `docs/formatting.md`).
+**7. `--features` replaces the defaults, it does not add to them.** Defaults are
+`mermaid,mention`, and `none` switches every optional feature off. When adding a feature:
+register its parser options and renderer in `markdownFeatures` in `markdown/features.go`
+and name it in `defaultFeatures`, add it to the `Usage` string of the `features` flag in
+`util/flags.go`, and document it under `docs/` (diagrams and other rendering in
+`docs/formatting.md`).
 
-**9. Everything is sequential today, and one thing still relies on that.**
-The two that used to be named here are done: the folder cache in `page/ancestry.go` sits
-behind an `RWMutex` (`TestFolderCacheConcurrentAccess` in `page/ancestry_test.go` races it on purpose), and
-`confluence.API`'s Cloud probe goes through a `sync.Once`, so the field the old wording
-named no longer exists. What is genuinely single-threaded is `page.LinkChecker`:
-`MissingPages` reads `len(c.pending)` before taking the mutex and then reads the map
-itself after releasing it (`page/check.go`). Anything that introduces concurrency across
-files has to fix that first.
+**8. Everything is sequential today, and one thing still relies on that.**
+The folder cache in `page/ancestry.go` sits behind an `RWMutex`
+(`TestFolderCacheConcurrentAccess` in `page/ancestry_test.go` races it on purpose),
+`confluence.API`'s Cloud probe runs under a mutex held for the whole probe, and the API
+holds no context: every
+`confluence.API` method that makes a request takes `ctx context.Context` first, and so
+does everything above it that makes one later (`manifest.Store`,
+`page.LinkChecker.MissingPages`, the ancestry trackers, `stdlib.New`).
+What is genuinely single-threaded is `page.LinkChecker`: `MissingPages` reads
+`len(c.pending)` before taking the mutex and then reads the map itself after releasing it
+(`page/check.go`). Anything that introduces concurrency across files has to fix that
+first.
+
+**9. The Confluence client answers in errors, not statuses.** `confluence/client.go`
+turns every non-2xx answer into a `*confluence.StatusError` (`errors.Is` matches
+`ErrUnauthorized`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` for a 401, 403, 404 and
+409; its message is Confluence's own when the body is v1's or v2's error shape), marks a
+write answered 502, 503 or 504, or left unanswered, for `retryUnavailable`, turns a login
+page into `ErrLoginPage`, and decodes a 2xx
+as it streams in, whatever its Content-Type: one value and nothing after it, an empty
+body as success -- except to `get` and `send`, which are asked for a value and refuse an
+empty one, or a page or folder that comes without its id. A write already sent is given
+`writeGrace` after its context ends to answer, since Confluence may already have applied
+it; the backoff before retrying one is cut short at once, unless the write
+finishes one already given grace and so waits within it. An update or move answered with
+a 2xx that is not JSON is checked by reading the page's version back (`confirmVersion`).
+A timeout is never retried. A call site asks `errors.Is`/`statusOf` rather than reading a
+status, and wraps through `requestError`. Anything that remembers an answer -- a cache, a "this
+endpoint is missing" flag, the platform -- must not remember one `IsCancellation` reports.
 
 ## Tests
 
