@@ -13,7 +13,6 @@ import (
 	"github.com/kovetskiy/mark/v16/confluence"
 	"github.com/kovetskiy/mark/v16/confluence/confluencetest"
 	"github.com/kovetskiy/mark/v16/export"
-	"github.com/kovetskiy/mark/v16/page"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -146,7 +145,7 @@ func TestExportRoundTrip(t *testing.T) {
 		"<!-- Title: Installing -->",
 		"<!-- Label: how-to -->",
 		"<!-- Label: install -->",
-		"<!-- Content-Appearance: fixed -->",
+		"<!-- Content-Appearance: default -->",
 		"<!-- Emoji: 🚀 -->",
 		"",
 		"# Installing",
@@ -805,7 +804,7 @@ func TestExportTreeRelativeLinks(t *testing.T) {
 // URLs.
 func TestExportTreeRelativeLinksFromURLs(t *testing.T) {
 	server, pages := exportTreeSpace(t)
-	tiny, err := page.GenerateTinyLink(server.URL, pages["C++"].ID)
+	tiny, err := confluence.GenerateTinyLink(server.URL, pages["C++"].ID)
 	require.NoError(t, err)
 	a := func(href, text string) string { return `<a href="` + href + `">` + text + `</a>` }
 

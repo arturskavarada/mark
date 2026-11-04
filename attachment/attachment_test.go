@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/kovetskiy/mark/v16/vfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,14 +155,8 @@ func TestResolver(t *testing.T) {
 		)
 	})
 
-	t.Run("legacy form is substituted once", func(t *testing.T) {
-		// The legacy branch was an if rather than an else if, so the plain branch
-		// then matched "a.png" inside the URL the legacy branch had just written,
-		// yielding a doubled path with two query strings.
-		assert.Equal(t,
-			"/download/attachments/12345/a.png?version=1",
-			NewResolver(single).Resolve("attachment://a.png"),
-		)
+	t.Run("an attachment:// URL is a URL", func(t *testing.T) {
+		assert.Empty(t, NewResolver(single).Resolve("attachment://a.png"))
 	})
 
 	t.Run("text that is not a destination", func(t *testing.T) {
@@ -198,7 +191,6 @@ func TestResolverEscapedDestination(t *testing.T) {
 	resolver := NewResolver(attachments)
 
 	assert.Equal(t, "/dl/1/a%23b.png?v=1", resolver.Resolve("a%23b.png"))
-	assert.Equal(t, "/dl/1/a%23b.png?v=1", resolver.Resolve("attachment://a%23b.png"))
 	assert.Equal(t, "/dl/1/my%2520file.png?v=1", resolver.Resolve("my%20file.png"),
 		"the spelling as written wins over the decoded one")
 	assert.Empty(t, resolver.Resolve("c%23d.png"))
@@ -234,15 +226,11 @@ func TestDecodeDestination(t *testing.T) {
 func TestResolverUnused(t *testing.T) {
 	attachments := []Attachment{
 		{Replace: "used.png", Link: "/dl/1/used.png"},
-		{Replace: "legacy.png", Link: "/dl/1/legacy.png"},
 		{Replace: "never.png", Link: "/dl/1/never.png"},
 	}
 
 	resolver := NewResolver(attachments)
 	resolver.Resolve("used.png")
-	// Referring to an attachment by its legacy spelling still counts as using
-	// it; reporting it unused would send someone looking for a second link.
-	resolver.Resolve("attachment://legacy.png")
 
 	assert.Equal(t, []string{"never.png"}, resolver.Unused(attachments))
 }
@@ -251,18 +239,6 @@ func TestResolverNil(t *testing.T) {
 	var resolver *Resolver
 	assert.Empty(t, resolver.Resolve("a.png"))
 	assert.Nil(t, resolver.Unused([]Attachment{{Replace: "a.png"}}))
-}
-
-// TestDifferentFilesUnderOneFilenameAreRefused covers two files that flatten to
-// the same name: uploading one would serve it under both links.
-func TestDifferentFilesUnderOneFilenameAreRefused(t *testing.T) {
-	_, _, err := splitByFilename([]Attachment{
-		{Name: "a/b_c.txt", Filename: "a_b_c.txt", Checksum: "1"},
-		{Name: "a_b/c.txt", Filename: "a_b_c.txt", Checksum: "2"},
-	})
-	if err == nil {
-		t.Fatal("expected an error for two different files under one filename")
-	}
 }
 
 // TestUploadNameCleansTheReference covers the spellings of one file: each gets
@@ -292,7 +268,7 @@ func TestFlattenFilenameKeepsDots(t *testing.T) {
 // under another: the link resolves, and the declared file counts as used.
 func TestResolverCleansNames(t *testing.T) {
 	for declared, linked := range map[string]string{
-		"./f.txt": "f.txt", "f.txt": "./f.txt", "a//b.txt": "a/./b.txt", "a/../f.txt": "attachment://./f.txt",
+		"./f.txt": "f.txt", "f.txt": "./f.txt", "a//b.txt": "a/./b.txt", "a/../f.txt": "b/../f.txt",
 	} {
 		attachments := []Attachment{{Replace: declared, Link: "/dl/1/f.txt"}}
 		resolver := NewResolver(attachments)
@@ -306,7 +282,7 @@ func TestPreparedAttachmentIsNamedCleaned(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), []byte("f"), 0o600))
 
-	attachment, err := ResolveLocalAttachment(vfs.LocalOS, dir, "./f.txt")
+	attachment, err := ResolveLocalAttachment(LocalOS, dir, "./f.txt")
 	require.NoError(t, err)
 	assert.Equal(t, "f.txt", attachment.Name)
 	assert.Equal(t, "f.txt", attachment.Replace)

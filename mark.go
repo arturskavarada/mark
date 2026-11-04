@@ -21,6 +21,7 @@ import (
 	"github.com/kovetskiy/mark/v16/fingerprint"
 	"github.com/kovetskiy/mark/v16/header"
 	"github.com/kovetskiy/mark/v16/includes"
+	"github.com/kovetskiy/mark/v16/internal/mdsource"
 	"github.com/kovetskiy/mark/v16/manifest"
 	markmd "github.com/kovetskiy/mark/v16/markdown"
 	"github.com/kovetskiy/mark/v16/mermaid"
@@ -29,7 +30,6 @@ import (
 	"github.com/kovetskiy/mark/v16/report"
 	"github.com/kovetskiy/mark/v16/stdlib"
 	"github.com/kovetskiy/mark/v16/types"
-	"github.com/kovetskiy/mark/v16/vfs"
 	"github.com/rs/zerolog/log"
 )
 
@@ -75,7 +75,7 @@ type Config struct {
 	CheckLinksWarnOnly bool
 	AppendLabels       bool
 	GlobalProperties   string
-	OnOrphan           string
+	OnOrphan           string // report.OnOrphanReport (also ""), OnOrphanArchive or OnOrphanDelete
 	OutputFormat       string
 	OrphanUnder        string
 
@@ -215,6 +215,12 @@ func (c Config) prepare() (page.LinkChecks, error) {
 		return page.LinkChecks{}, fmt.Errorf("MermaidBundle needs MermaidOutput \"svg\": %w", err)
 	}
 
+	// A page with no Content-Appearance of its own takes this one, and one
+	// that does not parse would fail every such page in turn.
+	if _, err := metadata.ParseContentAppearance(c.ContentAppearance); err != nil {
+		return page.LinkChecks{}, fmt.Errorf("invalid ContentAppearance: %w", err)
+	}
+
 	// The same for d2, and for the same reason: an unrecognised format falls to
 	// the renderer's PNG branch, publishing one without a word about the SVG
 	// that was asked for. An empty value is a caller that never set the field,
@@ -304,7 +310,7 @@ func run(ctx context.Context, config Config) (err error) {
 		return err
 	}
 
-	onOrphan, err := page.ParseOnOrphan(config.OnOrphan)
+	onOrphan, err := report.ParseOnOrphan(config.OnOrphan)
 	if err != nil {
 		return err
 	}
@@ -312,7 +318,7 @@ func run(ctx context.Context, config Config) (err error) {
 	// Removing a page needs to know mark put it there, and only the manifest
 	// knows that. Without it the flag could only guess from titles, which is
 	// not a guess worth making about deletion.
-	if onOrphan != page.OnOrphanReport && !config.TrackPages {
+	if onOrphan != report.OnOrphanReport && !config.TrackPages {
 		return fmt.Errorf(
 			"--on-orphan %s requires --track-pages: "+
 				"only the page manifest knows which pages mark published",
@@ -877,14 +883,14 @@ func readSource(file string) ([]byte, []byte, error) {
 	// A byte-order mark left in front of the first header comment would be
 	// reported as "doesn't contain metadata", which is not where the author
 	// would look.
-	source = metadata.NormalizeSource(source)
+	source = mdsource.Normalize(source)
 
 	// Before the headers are read, so that the line numbers in any complaint
 	// are the ones in the file the author is looking at rather than offsets
 	// into what is left after the header block is taken off. It also means an
 	// ignored region is ignored entirely, headers and all, which is what the
 	// markers say on the tin.
-	markdown, err := metadata.StripIgnoredBlocks(source)
+	markdown, err := mdsource.StripIgnoredBlocks(source)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to process %q: %w", file, err)
 	}
@@ -1696,7 +1702,7 @@ func (r *publishRun) compile(ctx context.Context, doc *document, target *conflue
 	}
 
 	localAttachments, err := attachment.ResolveLocalAttachments(
-		vfs.LocalOS,
+		attachment.LocalOS,
 		filepath.Dir(file),
 		declared,
 	)
@@ -1736,7 +1742,7 @@ func (r *publishRun) compile(ctx context.Context, doc *document, target *conflue
 		return "", nil, fmt.Errorf("unable to get attachments for page %s: %w", target.ID, err)
 	}
 
-	attaches, remoteAttachments, err := attachment.ResolveAttachmentsWithRemotes(
+	attaches, remoteAttachments, err := uploadAttachments(
 		ctx,
 		api, target, localAttachments, remoteAttachments,
 	)
@@ -1772,7 +1778,7 @@ func (r *publishRun) compile(ctx context.Context, doc *document, target *conflue
 		log.Warn().Msgf("unused attachment: %s", unused)
 	}
 
-	if _, _, err = attachment.ResolveAttachmentsWithRemotes(
+	if _, _, err = uploadAttachments(
 		ctx,
 		api, target, inlineAttachments, remoteAttachments,
 	); err != nil {

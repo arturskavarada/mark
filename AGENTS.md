@@ -5,7 +5,7 @@ Guidance for AI coding agents (and new human contributors) working in this repos
 `mark` reads Markdown and writes **Confluence storage format** — an XML dialect, not
 HTML. Most of the subtle bugs in this project's history come from forgetting that. Read
 the Invariants section before changing anything under `renderer/`, `transformer/`,
-`parser/`, `macro/`, `includes/`, or `stdlib/`.
+`parser/`, `internal/syntax/`, `macro/`, `includes/`, or `stdlib/`.
 
 ## Build, test, lint
 
@@ -30,11 +30,11 @@ tests, which take minutes. There is currently no `-short` skip.
 | --- | --- |
 | `cmd/mark` | thin `main`; flag wiring lives in `util/` |
 | `util/` | the command line (`Run`), flags, config file/env sourcing, credential resolution |
-| `mark.go` | orchestration: `Run` (glob → loop) and `ProcessFile` (the whole per-file pipeline); its concerns sit beside it in `tracking.go` (`--track-pages`), `orphans.go`, `changes.go` (`--changes-only`, `--no-overwrite`), `attachments.go`, `links.go`, `titles.go`, `runtitles.go` and `export.go` |
+| `mark.go` | orchestration: `Run` (glob → loop) and `ProcessFile` (the whole per-file pipeline); its concerns sit beside it in `tracking.go` (`--track-pages`), `orphans.go`, `changes.go` (`--changes-only`, `--no-overwrite`), `attachments.go` (upload and dry-run preview), `links.go`, `titles.go`, `runtitles.go` and `export.go` |
 | `metadata/` | `<!-- Header: -->` comments and YAML front matter → `Meta` |
 | `page/` | ancestry/folder resolution, relative-link rewriting, relocation, and the `--parents-from-path` hierarchy with its directory titles |
-| `confluence/` | REST client (v1 `/rest/api` + v2 `/api/v2`) on `net/http` (`client.go`), page cache, page restrictions, label sync |
-| `attachment/` | checksum, upload/update, link rewriting |
+| `confluence/` | REST client (v1 `/rest/api` + v2 `/api/v2`) on `net/http` (`client.go`), page cache, page restrictions, label sync, page URLs and tiny links |
+| `attachment/` | the `Attachment` type, checksums, upload names, local resolution and path containment, link rewriting; no Confluence client (uploading is `attachments.go` in the root package) |
 | `comments/` | `--preserve-comments`: re-places the page's inline-comment markers in the new body |
 | `fingerprint/` | the `--changes-only` content fingerprint, and the tag that carries it in a page's version message |
 | `markdown/` | goldmark assembly; `CompileMarkdown` is the entry point |
@@ -47,12 +47,14 @@ tests, which take minutes. There is currently no `-short` skip.
 | `doctor/` | `mark doctor`: the login, platform and per-space permission checks |
 | `manifest/` | the `--track-pages` record of which page each source file publishes to, kept in Confluence |
 | `header/` | the `--page-header` template placed at the top of every published page |
-| `report/` | what a run did, for `--output-format` and the run's summary |
+| `report/` | what a run did, for `--output-format` and the run's summary, and the `--on-orphan` actions |
 | `types/` | `MarkConfig`, the rendering options (diagram output and scale, features, image alignment, include path) handed to the renderers and transformers |
 | `stdlib/` | the `text/template` set that emits all `<ac:*>` markup |
 | `docs/` | the user reference, one page per topic; `README.md` keeps the overview, installation and command-line usage |
 | `internal/goldmarktest` | a goldmark parser and renderer built together, for tests |
 | `internal/htmlblock` | an HTML block's lines without its closing line, as goldmark v1 gave them |
+| `internal/mdsource` | the raw Markdown before goldmark: where the code is, `<!-- ac:ignore -->` regions, CRLF and BOM normalisation |
+| `internal/syntax` | what publishing and export must read alike: heading ids and attribute blocks, anchor keys, the `page#anchor` split, code block info strings and language aliases, admonition markers |
 
 Pipeline in `ProcessFile`: read → normalise CRLF → extract metadata → resolve relative
 links → resolve restricted users and groups → resolve/create page + ancestry → tighten
@@ -67,11 +69,12 @@ connection and credentials, logging) and one command per job: `publish`,
 record.
 A new flag goes in `globalFlags` only if every command needs it; otherwise it
 belongs to its command. Every flag reads the TOML file through a `configFile`
-source (`util/config.go`), parsed once a run. The root also carries hidden
-copies of publish's flags, for the deprecated `mark <publish flags>` its action
-still runs. The root's flags are resolved as it is parsed, before
-`mark publish --config X` names X, so their file and environment sources are
-held until a command's action settles them (`configFile.hold`). `util.Flags`,
+source (`util/config.go`), parsed once a run. The root's own action only
+refuses: `mark` alone, or an unknown command; a publish flag written before
+`publish` is refused naming its command (`publishFlagHint`). The root's flags
+are resolved as it is parsed, before `mark publish --config X` names X, so
+their file and environment sources are held until a command's action settles
+them (`configFile.hold`). `util.Flags`,
 `util.CheckFlags` and `util.RunMark` remain for programs that built mark's
 single command themselves. `util/command_test.go` fails when the help blocks in
 `README.md` drift from the binary;
@@ -158,7 +161,7 @@ that fails silently without recording into the pipeline will produce a wrong pag
 zero exit code.
 
 **6. Attachment checksums are content-addressed, but rendered ones are source-addressed.**
-Checksums live in the remote attachment's comment behind the `AttachmentChecksumPrefix`
+Checksums live in the remote attachment's comment behind `attachment.AttachmentChecksumPrefix`
 (`mark:checksum:` followed by a space).
 Mermaid attachments and d2 PNGs set `Checksum` from the *diagram source* (plus the scale
 for a PNG, and the bundle flag for a mermaid SVG), not the rendered bytes, because Chrome's
@@ -168,7 +171,8 @@ change the name or the page keeps the attachment it had. The exception is a d2 S
 checksum is taken over the rendered, bundled drawing (`ProcessD2SVG` in `d2/d2.go`): an
 image it inlines can change without the source changing, and d2's SVG output is
 deterministic.
-`ResolveAttachments` skips checksum computation when `Checksum` is already set — preserve
+`classifyAttachments` (`attachments.go`), which both the upload and the dry run go
+through, skips checksum computation when `Checksum` is already set — preserve
 that.
 
 **7. `--features` replaces the defaults, it does not add to them.** Defaults are
@@ -222,11 +226,11 @@ both unconditionally. There is no `-update` flag; golden files are written by ha
 
 Coverage is uneven, and where it is thin matters more than the number. Measured with
 `go test -cover ./...`: `markdown/` 84%, `renderer/` 69%, `confluence/` 84%, `stdlib/` 68%,
-`util/` 89%, `page/` 52%, `attachment/` 53%, `parser/` 36%, `chrome/` 54%, and the root
-package 87%. `cmd/mark/` and `vfs/` are at 0% on purpose: a thin `main` and a 19-line
-`os.Open` wrapper. `chrome/` has tests of its own for the raster bounds and the shared
-browser, and is otherwise exercised through its callers: `PNGFromSVG` by `d2/` and
-`math/`, and the allocator options and `CheckRasterBounds` by `mermaid/`.
+`util/` 89%, `page/` 52%, `parser/` 36%, `chrome/` 54%, and the root
+package 87%. `cmd/mark/` is at 0% on purpose: a thin `main`. `chrome/` has tests of
+its own for the raster bounds and the shared browser, and is otherwise exercised through
+its callers: `PNGFromSVG` by `d2/` and `math/`, and the allocator options and
+`CheckRasterBounds` by `mermaid/`.
 
 Two things to know before reading those numbers. `make test` passes no `-coverpkg`, so a
 package's figure counts only what its *own* tests exercise — renderer code driven by the

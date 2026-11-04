@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kovetskiy/mark/v16/mermaid"
+	"github.com/kovetskiy/mark/v16/metadata"
 	"github.com/kovetskiy/mark/v16/types"
 
 	"github.com/urfave/cli/v3"
@@ -250,7 +251,7 @@ func publishFlags(config *configFile) []cli.Flag {
 		&cli.StringFlag{
 			Name:  "content-appearance",
 			Value: "",
-			Usage: "default content appearance for pages without a Content-Appearance header. Possible values: full-width (Wide), fixed, default (Narrow), max (Max).",
+			Usage: "default content appearance for pages without a Content-Appearance header. Possible values: full-width (Wide), default (Narrow), max (Max).",
 			Sources: cli.NewValueSourceChain(
 				cli.EnvVar("MARK_CONTENT_APPEARANCE"),
 				config.value("content-appearance"),
@@ -436,37 +437,6 @@ func publishFlags(config *configFile) []cli.Flag {
 			TakesFile: true,
 			Sources:   cli.NewValueSourceChain(cli.EnvVar("MARK_PAGE_HEADER"), config.value("page-header")),
 		},
-	}
-}
-
-// bareFlags are publish's flags as the root takes them, for the deprecated
-// "mark <publish flags>" with no command: hidden from the root's help, not
-// passed on to commands, and with every source held, so that until settle a
-// flag that is set is one the command line set.
-func bareFlags(config *configFile) []cli.Flag {
-	flags := publishFlags(config)
-	for _, flag := range flags {
-		switch flag := flag.(type) {
-		case *cli.StringFlag:
-			onRoot(flag, config)
-		case *cli.BoolFlag:
-			onRoot(flag, config)
-		case *cli.FloatFlag:
-			onRoot(flag, config)
-		case *cli.StringSliceFlag:
-			onRoot(flag, config)
-		default:
-			panic(fmt.Sprintf("bareFlags: no case for %T", flag))
-		}
-	}
-
-	return flags
-}
-
-func onRoot[T, C any, VC cli.ValueCreator[T, C]](flag *cli.FlagBase[T, C, VC], config *configFile) {
-	flag.Hidden, flag.Local = true, true
-	for i, source := range flag.Sources.Chain {
-		flag.Sources.Chain[i] = config.hold(source)
 	}
 }
 
@@ -692,17 +662,8 @@ func checkPublishFlags(context context.Context, command *cli.Command) (context.C
 		return context, errors.New("flags --title-from-h1 and --title-from-filename are mutually exclusive. Please specify only one")
 	}
 
-	contentAppearance := strings.TrimSpace(command.String("content-appearance"))
-	if contentAppearance != "" {
-		switch contentAppearance {
-		case "full-width", "fixed", "default", "max":
-			// ok
-		default:
-			return context, fmt.Errorf(
-				"invalid value for --content-appearance: %q (expected: full-width, fixed, default, or max)",
-				contentAppearance,
-			)
-		}
+	if _, err := metadata.ParseContentAppearance(command.String("content-appearance")); err != nil {
+		return context, fmt.Errorf("invalid value for --content-appearance: %w", err)
 	}
 
 	if err := checkEmptyFeatures(command); err != nil {

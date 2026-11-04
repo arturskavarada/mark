@@ -200,7 +200,7 @@ OPTIONS:
    --space string, -s string                      use specified space key. If the space key is not specified, it must be set in the page metadata. [$MARK_SPACE]
    --parents string                               A list containing the parents of the document separated by parents-delimiter (default: '/'). These will be prepended to the ones defined in the document itself. [$MARK_PARENTS]
    --parents-delimiter string                     The delimiter used for the parents list (default: "/") [$MARK_PARENTS_DELIMITER]
-   --content-appearance string                    default content appearance for pages without a Content-Appearance header. Possible values: full-width (Wide), fixed, default (Narrow), max (Max). [$MARK_CONTENT_APPEARANCE]
+   --content-appearance string                    default content appearance for pages without a Content-Appearance header. Possible values: full-width (Wide), default (Narrow), max (Max). [$MARK_CONTENT_APPEARANCE]
    --mermaid-scale float                          defines the scaling factor for mermaid renderings: the pixels of a png, and the size the page displays an svg at. (default: 1) [$MARK_MERMAID_SCALE]
    --mermaid-engine string                        what mermaid diagrams are drawn by: chrome (the default, a headless browser running mermaid.js) or merman (experimental, a native reimplementation that needs no browser and must be installed separately). (default: "chrome") [$MARK_MERMAID_ENGINE]
    --mermaid-output string                        image a mermaid diagram is published as: png (rasterised, and scaled by --mermaid-scale), svg (vector and sharp at any zoom, where the instance displays an SVG attachment, and the one --mermaid-bundle applies to), or macro (the diagram's source is published as a mermaid-macro macro, drawn by the instance's own Mermaid macro rather than by mark; --mermaid-engine and --mermaid-scale have no effect with it, and --mermaid-bundle is refused). (default: "png") [$MARK_MERMAID_OUTPUT]
@@ -279,24 +279,20 @@ GLOBAL OPTIONS:
    --color string                display logs in color. Possible values: auto, never. (default: "auto") [$MARK_COLOR]
 ```
 
-### Running mark without a command
+### Upgrading from mark without a command
 
-Before it had commands, `mark` took the publish options directly, and that
-still works: `mark -f doc.md` publishes exactly as `mark publish -f doc.md`
-does, reading the same flags, environment variables and configuration file, and
-logs a deprecation warning, so move pipelines over to `mark publish` at your
-convenience. A few command lines read differently than they used to:
+Before it had commands, `mark` took the publish options directly. Since v17
+it no longer does: `mark -f doc.md` fails, naming the command the option
+belongs to, and `mark` on its own prints the help and fails. Put `publish`
+after `mark`, before the publish options:
 
-* `mark` on its own publishes what `MARK_FILES` or the configuration file names.
-  With nothing to publish it prints the help and fails.
-* An argument that is not a flag was ignored. One that looks like a mistyped
-  command (`mark publsh -f doc.md`) is now an error, and so is any such
-  argument when `--files` is not given. Others are still ignored, with a
-  warning: usually they are a `--files` glob the shell expanded.
-* A publish option written before a command (`mark -f doc.md publish`) is an
-  error rather than silently ignored.
-* `mark -f doc.md --help` shows mark's own help, which lists the commands; the
-  publish options are under `mark publish --help`.
+```bash
+mark -c ci.toml -f doc.md            # before v17
+mark -c ci.toml publish -f doc.md    # v17
+```
+
+The global options can stay where they were, and the environment variables
+and the configuration file are read as before.
 
 You can store user credentials in the configuration file, which should be
 located in a system specific directory (or specified via `-c --config <path>`) with the following format (TOML):

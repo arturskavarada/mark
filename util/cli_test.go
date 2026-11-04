@@ -82,10 +82,10 @@ func TestCheckMutuallyExclusiveTitleFlags(t *testing.T) {
 }
 
 func TestContentAppearanceFlagValidation(t *testing.T) {
-	t.Run("fixed is accepted", func(t *testing.T) {
+	t.Run("fixed is refused", func(t *testing.T) {
 		err := runWithArgs([]string{"cmd", "--content-appearance", "fixed"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
+		if err == nil || !strings.Contains(err.Error(), `use "default" for a narrow page`) {
+			t.Errorf("expected fixed to be refused, got %v", err)
 		}
 	})
 
@@ -284,7 +284,7 @@ func TestMermaidMacroNameFlagValidation(t *testing.T) {
 func TestMermaidMacroOutputNeedsNoDrawingFlags(t *testing.T) {
 	config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
-	stdout, _, err := runMark(t,
+	stdout, _, err := runMark(t, "publish",
 		"--config", config,
 		"--compile-only",
 		"--mermaid-output", "macro",
@@ -302,7 +302,7 @@ func TestMermaidMacroOutputNeedsNoDrawingFlags(t *testing.T) {
 func TestMermaidMacroNameReachesTheOutput(t *testing.T) {
 	config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
-	stdout, _, err := runMark(t,
+	stdout, _, err := runMark(t, "publish",
 		"--config", config,
 		"--compile-only",
 		"--mermaid-output", "macro",
@@ -319,7 +319,7 @@ func TestMermaidMacroFromTheConfigFile(t *testing.T) {
 	config := writeConfig(t, t.TempDir(), "mark.toml",
 		"mermaid-output = \"macro\"\nmermaid-macro-name = \"cfg-macro\"\n")
 
-	stdout, _, err := runMark(t,
+	stdout, _, err := runMark(t, "publish",
 		"--config", config,
 		"--compile-only",
 		"--files", writeMermaidDoc(t),
@@ -336,7 +336,7 @@ func TestMermaidMacroFromTheEnvironment(t *testing.T) {
 
 	config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
-	stdout, _, err := runMark(t,
+	stdout, _, err := runMark(t, "publish",
 		"--config", config,
 		"--compile-only",
 		"--files", writeMermaidDoc(t),
@@ -352,7 +352,7 @@ func TestMermaidMacroBlankNameIsRefusedFromEverySource(t *testing.T) {
 	t.Run("the flag", func(t *testing.T) {
 		config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
-		_, _, err := runMark(t,
+		_, _, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -366,7 +366,7 @@ func TestMermaidMacroBlankNameIsRefusedFromEverySource(t *testing.T) {
 	t.Run("the config file", func(t *testing.T) {
 		config := writeConfig(t, t.TempDir(), "mark.toml", "mermaid-macro-name = \"\"\n")
 
-		_, _, err := runMark(t,
+		_, _, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -381,7 +381,7 @@ func TestMermaidMacroBlankNameIsRefusedFromEverySource(t *testing.T) {
 
 		config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
-		_, _, err := runMark(t,
+		_, _, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -399,7 +399,7 @@ func TestMermaidMacroWarnsAboutWhatItDoesNotUse(t *testing.T) {
 	config := writeConfig(t, t.TempDir(), "mark.toml", "")
 
 	t.Run("an engine", func(t *testing.T) {
-		_, stderr, err := runMark(t,
+		_, stderr, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -411,7 +411,7 @@ func TestMermaidMacroWarnsAboutWhatItDoesNotUse(t *testing.T) {
 	})
 
 	t.Run("a scale", func(t *testing.T) {
-		_, stderr, err := runMark(t,
+		_, stderr, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -423,7 +423,7 @@ func TestMermaidMacroWarnsAboutWhatItDoesNotUse(t *testing.T) {
 	})
 
 	t.Run("the feature", func(t *testing.T) {
-		_, stderr, err := runMark(t,
+		_, stderr, err := runMark(t, "publish",
 			"--config", config,
 			"--compile-only",
 			"--mermaid-output", "macro",
@@ -448,7 +448,7 @@ func TestMermaidMacroFeatureWarningIsOncePerRun(t *testing.T) {
 			0o600))
 	}
 
-	_, stderr, err := runMark(t,
+	_, stderr, err := runMark(t, "publish",
 		"--config", config,
 		"--compile-only",
 		"--mermaid-output", "macro",
@@ -587,12 +587,10 @@ func TestWatchFlag(t *testing.T) {
 		env      map[string]string
 		config   string
 		args     []string
-		bare     bool
 		watchers []string
 	}{
 		{name: "by default", watchers: []string{"acct-current"}},
 		{name: "--watch=false", args: []string{"--watch=false"}},
-		{name: "--watch=false without publish", args: []string{"--watch=false"}, bare: true},
 		{name: "MARK_WATCH=false", env: map[string]string{"MARK_WATCH": "false"}},
 		{name: "watch = false", config: "watch = false\n"},
 		{name: "--watch over watch = false", config: "watch = false\n", args: []string{"--watch"},
@@ -604,11 +602,8 @@ func TestWatchFlag(t *testing.T) {
 			}
 
 			watchers, err := watchedAfterPublish(t, tc.config, func(server, config, document string) error {
-				args := []string{"-c", config, "--color", "never", "-u", "user", "-p", "token"}
-				if !tc.bare {
-					args = append(args, "publish")
-				}
-				args = append(args, "-b", server, "--files", document)
+				args := []string{"-c", config, "--color", "never", "-u", "user", "-p", "token",
+					"publish", "-b", server, "--files", document}
 				_, _, err := runMark(t, append(args, tc.args...)...)
 				return err
 			})

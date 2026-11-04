@@ -12,13 +12,13 @@ import (
 
 	"github.com/kovetskiy/mark/v16/attachment"
 	"github.com/kovetskiy/mark/v16/includes"
+	"github.com/kovetskiy/mark/v16/internal/syntax"
 	"github.com/kovetskiy/mark/v16/macro"
 	cparser "github.com/kovetskiy/mark/v16/parser"
 	crenderer "github.com/kovetskiy/mark/v16/renderer"
 	"github.com/kovetskiy/mark/v16/stdlib"
 	ctransformer "github.com/kovetskiy/mark/v16/transformer"
 	"github.com/kovetskiy/mark/v16/types"
-	"github.com/kovetskiy/mark/v16/vfs"
 	"github.com/rs/zerolog/log"
 	"github.com/yuin/goldmark/v2/extension"
 	"github.com/yuin/goldmark/v2/parser"
@@ -67,7 +67,7 @@ func compileMarkdownWithExtension(markdown []byte, ext markdownExtension, logMes
 		// {#custom-id} syntax every other Markdown tool understands, and
 		// generates the rest. page.headingIDs parses with the same options,
 		// so that a link from another document finds the id given here.
-		cparser.HeadingOptions()...,
+		syntax.HeadingOptions()...,
 	)...)
 
 	r := html.New(
@@ -339,7 +339,7 @@ func attachMacroFiles(path string, cfg types.MarkConfig, names []string) ([]atta
 			continue
 		}
 
-		file, err := attachment.ResolveLocalAttachment(vfs.LocalOS, filepath.Dir(path), name)
+		file, err := attachment.ResolveLocalAttachment(attachment.LocalOS, filepath.Dir(path), name)
 		if errors.Is(err, attachment.ErrOutsideProject) {
 			return nil, fmt.Errorf("unable to attach %q named by a macro: %w", name, err)
 		}

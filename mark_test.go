@@ -393,7 +393,9 @@ func TestProcessFileRefusesWhatRunRefuses(t *testing.T) {
 			c.MermaidOutput = "macro"
 			c.MermaidBundle = true
 		},
-		"an unknown d2 output": func(c *Config) { c.D2Output = "jpeg" },
+		"an unknown d2 output":  func(c *Config) { c.D2Output = "jpeg" },
+		"an unknown appearance": func(c *Config) { c.ContentAppearance = "wide" },
+		"a fixed appearance":    func(c *Config) { c.ContentAppearance = "fixed" },
 		"a d2 scale of nothing": func(c *Config) {
 			c.Features = []string{"d2"}
 			c.D2Scale = math.NaN()
